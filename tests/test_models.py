@@ -27,7 +27,7 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db, DataValidationError
 from service import app
 from tests.factories import ProductFactory
 
@@ -135,6 +135,16 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(products[0].id, original_id)
         self.assertEqual(products[0].description, "Modify description")
 
+
+    def test_update_with_empty_id(self):
+        # Create a Product instance with an empty ID
+        product = ProductFactory()
+        product.create()
+        product.id = None
+        with self.assertRaises(DataValidationError):
+            product.update()
+
+
     def test_delete_a_product(self):
         """It should Delete a Product"""
         product = ProductFactory()
@@ -193,3 +203,46 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(found.count(), count)
         for product in found:
             self.assertEqual(product.category, category)
+
+    def test_deserialize_valid_data(self):
+        """ It should deserialize the product """
+        data = ProductFactory().serialize()
+        product = Product()
+        product.deserialize(data)
+        self.assertEqual(product.name, data["name"])
+        self.assertEqual(product.description, data["description"])
+        self.assertEqual(product.price, Decimal(data["price"]))
+        self.assertEqual(product.available, data["available"])
+        self.assertEqual(str(product.category), "Category." + data["category"])
+
+    def test_deserialize_invalid_data(self):
+        """ It should not deserialize the product with invalid data """
+        data = ProductFactory().serialize()
+        data["available"] = "False"
+        product = Product()
+        with self.assertRaises(DataValidationError):
+            product.deserialize(data)
+        
+    def test_deserialize_missing_key(self):
+        """ It should not deserialize the product with missing key """
+        data = ProductFactory().serialize()
+        del(data["available"])
+        product = Product()
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        # Assert that the expected exception is raised
+        self.assertIsNotNone(context.exception)
+        self.assertIn("Invalid product: missing", str(context.exception))
+
+    def test_find_by_price(self):
+        """It should Find a Product by Price"""
+        products = ProductFactory.create_batch(5)
+        for product in products:
+            product.create()
+        price = products[0].price
+        count = len([product for product in products if product.price == price])
+        # find them
+        found = Product.find_by_price(price)
+        self.assertEqual(found.count(), count)
+        for product in found:
+            self.assertEqual(product.price, price)
